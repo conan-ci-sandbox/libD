@@ -9,7 +9,7 @@ file(GLOB HEADERS include/libD/*)
 
 add_library(libD ${SOURCES} ${HEADERS})
 
-target_link_libraries(libD PRIVATE CONAN_PKG::libA)
+target_link_libraries(libD PRIVATE CONAN_PKG::libB CONAN_PKG::libC)
 
 target_include_directories(
     libD PUBLIC
