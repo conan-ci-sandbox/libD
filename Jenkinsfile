@@ -10,8 +10,8 @@ def artifactory_url = (env.ARTIFACTORY_URL != null) ? "${env.ARTIFACTORY_URL}" :
 String reference_revision = null
 
 def profiles = [
-  "conanio-gcc8": "conanio/gcc8",	
-  "conanio-gcc7": "conanio/gcc7"	
+  "debug-gcc6": "conanio/gcc6",	
+  "release-gcc6": "conanio/gcc6"	
 ]
 
 def build_result = [:]
@@ -54,7 +54,7 @@ def get_stages(profile, docker_image, user_channel, config_url, conan_develop_re
                                 // and search for the package using --revisions to get the revision of the package
                                 // write the search to a json file and stash the file to get it after all the builds
                                 // have finished to pass it to the products projects pipeline
-                                if (profile=="conanio-gcc8") { //FIX THIS: get just for one of the profiles the revision is the same for all
+                                if (profile=="debug-gcc6") { //FIX THIS: get just for one of the profiles the revision is the same for all
                                     def search_output = "search_output.json"
                                     sh "conan search ${name}/${version}@${user_channel} --revisions --raw --json=${search_output}"
                                     sh "cat ${search_output}"
@@ -127,7 +127,7 @@ pipeline {
             steps {
                 script {
                 if (branch_name =~ ".*PR.*" || env.BRANCH_NAME == "develop") {
-                    docker.image("conanio/gcc8").inside("--net=host") {
+                    docker.image("conanio/gcc6").inside("--net=host") {
                             def last_info = ""
                             build_result.each { profile, buildInfo ->
                                 writeJSON file: "${profile}.json", json: buildInfo
