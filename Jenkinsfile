@@ -14,9 +14,11 @@ def profiles = [
   "release-gcc6": "conanio/gcc6"	
 ]
 
+def create_build_info = false
+
 def build_result = [:]
 
-def get_stages(profile, docker_image, user_channel, config_url, conan_develop_repo, conan_tmp_repo, artifactory_metadata_repo, artifactory_url) {
+def get_stages(profile, docker_image, user_channel, config_url, conan_develop_repo, conan_tmp_repo, artifactory_metadata_repo, artifactory_url, create_build_info) {
     return {
         stage(profile) {
             node {
@@ -40,45 +42,37 @@ def get_stages(profile, docker_image, user_channel, config_url, conan_develop_re
                                     sh "conan user -p ${ARTIFACTORY_PASSWORD} -r ${conan_tmp_repo} ${ARTIFACTORY_USER}"
                                 }
                             }
-                            stage("Start build info: ${env.JOB_NAME} ${env.BUILD_NUMBER}") { 
-                                sh "conan_build_info --v2 start \"${env.JOB_NAME}\" \"${env.BUILD_NUMBER}\""
+                            if (create_build_info) {
+                                stage("Start build info: ${env.JOB_NAME} ${env.BUILD_NUMBER}") { 
+                                    sh "conan_build_info --v2 start \"${env.JOB_NAME}\" \"${env.BUILD_NUMBER}\""
+                                }
                             }
                             stage("Create package") {                                
                                 sh "conan graph lock . --profile ${profile} --lockfile=${lockfile} -r ${conan_develop_repo}"
                                 sh "cat ${lockfile}"
                                 sh "conan create . ${user_channel} --profile ${profile} --lockfile=${lockfile} -r ${conan_develop_repo} --ignore-dirty"
                                 sh "cat ${lockfile}"
+                            }
+
+                            stage("Get current package revision") {       
                                 name = sh (script: "conan inspect . --raw name", returnStdout: true).trim()
                                 version = sh (script: "conan inspect . --raw version", returnStdout: true).trim()                                
-                                // this is some kind of workaround, we have just created the package in the local cache
-                                // and search for the package using --revisions to get the revision of the package
-                                // write the search to a json file and stash the file to get it after all the builds
-                                // have finished to pass it to the products projects pipeline
-                                if (profile=="debug-gcc6") { //FIX THIS: get just for one of the profiles the revision is the same for all
-                                    def search_output = "search_output.json"
-                                    sh "conan search ${name}/${version}@${user_channel} --revisions --raw --json=${search_output}"
-                                    sh "cat ${search_output}"
-                                    stash name: 'full_reference', includes: 'search_output.json'
-                                }
+                                def search_output = "search_output.json"
+                                sh "conan search ${name}/${version}@${user_channel} --revisions --raw --json=${search_output}"
+                                sh "cat ${search_output}"
+                                stash name: 'full_reference', includes: 'search_output.json'
                             }
-                            stage("Test things") {
-                                echo("tests OK!")
-                            }
+
                             if (branch_name =~ ".*PR.*" || env.BRANCH_NAME == "develop") {                     
                                 stage("Upload package") {
-                                    // we upload the package in case it's a PR or a commit to develop to pass the new package
-                                    // to the prduct's pipeline           
-                                        sh "conan upload '*' --all -r ${conan_tmp_repo} --confirm  --force"
-                                        // NOTE: This step probably should be done in the products pipeline
-                                        //       if we find that the package does not depend on any product
-                                        // if (env.BRANCH_NAME=="develop") { //FIXME: should be done in the end promoting or when all configs are built
-                                        //     sh "conan upload '*' --all -r ${conan_develop_repo} --confirm  --force"
-                                        // }
+                                    sh "conan upload '*' --all -r ${conan_tmp_repo} --confirm  --force"
                                 }
-                                stage("Create build info") {
-                                    withCredentials([usernamePassword(credentialsId: 'artifactory-credentials', usernameVariable: 'ARTIFACTORY_USER', passwordVariable: 'ARTIFACTORY_PASSWORD')]) {
-                                        sh "conan_build_info --v2 create --lockfile ${lockfile} --user \"\${ARTIFACTORY_USER}\" --password \"\${ARTIFACTORY_PASSWORD}\" ${buildInfoFilename}"
-                                        buildInfo = readJSON(file: buildInfoFilename)
+                                if (create_build_info) {
+                                    stage("Create build info") {
+                                        withCredentials([usernamePassword(credentialsId: 'artifactory-credentials', usernameVariable: 'ARTIFACTORY_USER', passwordVariable: 'ARTIFACTORY_PASSWORD')]) {
+                                            sh "conan_build_info --v2 create --lockfile ${lockfile} --user \"\${ARTIFACTORY_USER}\" --password \"\${ARTIFACTORY_PASSWORD}\" ${buildInfoFilename}"
+                                            buildInfo = readJSON(file: buildInfoFilename)
+                                        }
                                     }
                                 }
                             } 
@@ -113,9 +107,28 @@ pipeline {
                     echo("${currentBuild.fullProjectName.tokenize('/')[0]}")
                     build_result = withEnv(["CONAN_HOOK_ERROR_LEVEL=40"]) {
                         parallel profiles.collectEntries { profile, docker_image ->
-                            ["${profile}": get_stages(profile, docker_image, user_channel, config_url, conan_develop_repo, conan_tmp_repo, artifactory_metadata_repo, artifactory_url)]
+                            ["${profile}": get_stages(profile, docker_image, user_channel, config_url, conan_develop_repo, conan_tmp_repo, artifactory_metadata_repo, artifactory_url, create_build_info)]
                         }
                     }
+
+                    if (create_build_info) {
+                        if (branch_name =~ ".*PR.*" || env.BRANCH_NAME == "develop") {
+                            docker.image("conanio/gcc6").inside("--net=host") {
+                                def last_info = ""
+                                build_result.each { profile, buildInfo ->
+                                    writeJSON file: "${profile}.json", json: buildInfo
+                                    if (last_info != "") {
+                                        sh "conan_build_info --v2 update ${profile}.json ${last_info} --output-file mergedbuildinfo.json"
+                                    }
+                                    last_info = "${profile}.json"
+                                }                    
+                                sh "cat mergedbuildinfo.json"
+                                withCredentials([usernamePassword(credentialsId: 'artifactory-credentials', usernameVariable: 'ARTIFACTORY_USER', passwordVariable: 'ARTIFACTORY_PASSWORD')]) {
+                                    sh "conan_build_info --v2 publish --url http://${artifactory_url}:8081/artifactory --user \"\${ARTIFACTORY_USER}\" --password \"\${ARTIFACTORY_PASSWORD}\" mergedbuildinfo.json"
+                                }
+                            }
+                        }
+                    }                    
                 }
             }
         }
@@ -123,30 +136,7 @@ pipeline {
         // maybe just doing publishes an uploads if we are releasing something
         // or doing a commit to develop?
         // maybe if a new tag was created with the name release?
-        stage("Merge and publish build infos") {
-            steps {
-                script {
-                if (branch_name =~ ".*PR.*" || env.BRANCH_NAME == "develop") {
-                    docker.image("conanio/gcc6").inside("--net=host") {
-                            def last_info = ""
-                            build_result.each { profile, buildInfo ->
-                                writeJSON file: "${profile}.json", json: buildInfo
-                                if (last_info != "") {
-                                    sh "conan_build_info --v2 update ${profile}.json ${last_info} --output-file mergedbuildinfo.json"
-                                }
-                                last_info = "${profile}.json"
-                            }                    
-                            sh "cat mergedbuildinfo.json"
-                            withCredentials([usernamePassword(credentialsId: 'artifactory-credentials', usernameVariable: 'ARTIFACTORY_USER', passwordVariable: 'ARTIFACTORY_PASSWORD')]) {
-                                sh "conan_build_info --v2 publish --url http://${artifactory_url}:8081/artifactory --user \"\${ARTIFACTORY_USER}\" --password \"\${ARTIFACTORY_PASSWORD}\" mergedbuildinfo.json"
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        stage("Trigger products build") {
+        stage("Trigger products pipeline") {
             agent any
             steps {
                 script {
