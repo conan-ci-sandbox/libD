@@ -62,7 +62,7 @@ def get_stages(profile, docker_image, user_channel, config_url, conan_develop_re
 
                             if (branch_name =~ ".*PR.*" || env.BRANCH_NAME == "develop") {                     
                                 stage("Upload package") {
-                                    sh "conan upload '*' --all -r ${conan_tmp_repo} --confirm  --force"
+                                    sh "conan upload '*' --all -r ${conan_tmp_repo} --confirm"
                                 }
                                 if (create_build_info) {
                                     stage("Create build info") {
