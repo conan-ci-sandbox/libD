@@ -1,11 +1,10 @@
-def organization = "conan-ci-cd-training"
-def user_channel = "mycompany/stable"
-def config_url = "https://github.com/conan-ci-cd-training/settings.git"
-def conan_develop_repo = "conan-develop"
-def conan_tmp_repo = "conan-tmp"
-def artifactory_metadata_repo = "conan-metadata"
+user_channel = "mycompany/stable"
+config_url = "https://github.com/conan-ci-cd-training/settings.git"
+conan_develop_repo = "conan-develop"
+conan_tmp_repo = "conan-tmp"
+artifactory_metadata_repo = "conan-metadata"
 
-def artifactory_url = (env.ARTIFACTORY_URL != null) ? "${env.ARTIFACTORY_URL}" : "jfrog.local"
+artifactory_url = (env.ARTIFACTORY_URL != null) ? "${env.ARTIFACTORY_URL}" : "jfrog.local"
 
 String reference_revision = null
 
@@ -14,11 +13,11 @@ def profiles = [
   "release-gcc6": "conanio/gcc6"	
 ]
 
-def create_build_info = false
+create_build_info = false
 
 def build_result = [:]
 
-def get_stages(profile, docker_image, user_channel, config_url, conan_develop_repo, conan_tmp_repo, artifactory_metadata_repo, artifactory_url, create_build_info) {
+def get_stages(profile, docker_image) {
     return {
         stage(profile) {
             node {
@@ -103,7 +102,7 @@ pipeline {
                     echo("${currentBuild.fullProjectName.tokenize('/')[0]}")
                     build_result = withEnv(["CONAN_HOOK_ERROR_LEVEL=40"]) {
                         parallel profiles.collectEntries { profile, docker_image ->
-                            ["${profile}": get_stages(profile, docker_image, user_channel, config_url, conan_develop_repo, conan_tmp_repo, artifactory_metadata_repo, artifactory_url, create_build_info)]
+                            ["${profile}": get_stages(profile, docker_image)]
                         }
                     }
 
@@ -134,24 +133,19 @@ pipeline {
         // maybe if a new tag was created with the name release?
         stage("Trigger products pipeline") {
             agent any
+            when {expression { return (branch_name =~ ".*PR.*" || env.BRANCH_NAME == "develop") }}
             steps {
                 script {
-                    if (branch_name =~ ".*PR.*" || env.BRANCH_NAME == "develop") {
-                        unstash 'full_reference'
-                        def props = readJSON file: "search_output.json"
-                        reference_revision = props[0]['revision']
-                        assert reference_revision != null
-                        def reference = "${name}/${version}@${user_channel}#${reference_revision}"
-                        def scmVars = checkout scm
-                        build(job: "../products/master", propagate: true, parameters: [
-                            [$class: 'StringParameterValue', name: 'reference', value: reference],
-                            [$class: 'StringParameterValue', name: 'organization', value: organization],
-                            [$class: 'StringParameterValue', name: 'build_name', value: env.JOB_NAME],
-                            [$class: 'StringParameterValue', name: 'build_number', value: env.BUILD_NUMBER],
-                            [$class: 'StringParameterValue', name: 'commit_number', value: scmVars.GIT_COMMIT],
-                            [$class: 'StringParameterValue', name: 'library_branch', value: env.BRANCH_NAME],
-                        ]) 
-                    }
+                    unstash 'full_reference'
+                    def props = readJSON file: "search_output.json"
+                    reference_revision = props[0]['revision']
+                    assert reference_revision != null
+                    def reference = "${name}/${version}@${user_channel}#${reference_revision}"
+                    def scmVars = checkout scm
+                    build(job: "../products/master", propagate: true, parameters: [
+                        [$class: 'StringParameterValue', name: 'reference', value: reference],
+                        [$class: 'StringParameterValue', name: 'library_branch', value: env.BRANCH_NAME],
+                    ]) 
                 }
             }
         }
