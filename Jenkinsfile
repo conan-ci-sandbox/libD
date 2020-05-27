@@ -50,19 +50,22 @@ def get_stages(profile, docker_image) {
                                 sh "cat ${lockfile}"
                             }
 
-                            stage("Get current package revision") {       
-                                name = sh (script: "conan inspect . --raw name", returnStdout: true).trim()
-                                version = sh (script: "conan inspect . --raw version", returnStdout: true).trim()                                
-                                def search_output = "search_output.json"
-                                sh "conan search ${name}/${version}@${user_channel} --revisions --raw --json=${search_output}"
-                                sh "cat ${search_output}"
-                                stash name: 'full_reference', includes: 'search_output.json'
-                            }
+                            if (branch_name =~ ".*PR.*" || env.BRANCH_NAME == "develop") {      
+                                
+                                if (reference_revision == null) {               
+                                    stage("Get current package revision") {       
+                                        name = sh (script: "conan inspect . --raw name", returnStdout: true).trim()
+                                        version = sh (script: "conan inspect . --raw version", returnStdout: true).trim()                                
+                                        search_out = sh (script: "conan search ${name}/${version}@${user_channel} --revisions --raw", returnStdout: true).trim()    
+                                        reference_revision = search_out.split(" ")[0]
+                                        echo "${reference_revision}"
+                                    }
+                                }
 
-                            if (branch_name =~ ".*PR.*" || env.BRANCH_NAME == "develop") {                     
                                 stage("Upload package") {
                                     sh "conan upload '*' --all -r ${conan_tmp_repo} --confirm"
                                 }
+
                                 if (create_build_info) {
                                     stage("Create build info") {
                                         withCredentials([usernamePassword(credentialsId: 'artifactory-credentials', usernameVariable: 'ARTIFACTORY_USER', passwordVariable: 'ARTIFACTORY_PASSWORD')]) {
@@ -72,6 +75,7 @@ def get_stages(profile, docker_image) {
                                     }
                                 }
                             } 
+
                             stage("Upload lockfile") {
                                 if (env.BRANCH_NAME == "develop") {
                                     def lockfile_url = "http://${artifactory_url}:8081/artifactory/${artifactory_metadata_repo}/${env.JOB_NAME}/${env.BUILD_NUMBER}/${name}/${version}@${user_channel}/${profile}/conan.lock"
@@ -136,9 +140,6 @@ pipeline {
             when {expression { return (branch_name =~ ".*PR.*" || env.BRANCH_NAME == "develop") }}
             steps {
                 script {
-                    unstash 'full_reference'
-                    def props = readJSON file: "search_output.json"
-                    reference_revision = props[0]['revision']
                     assert reference_revision != null
                     def reference = "${name}/${version}@${user_channel}#${reference_revision}"
                     def scmVars = checkout scm
