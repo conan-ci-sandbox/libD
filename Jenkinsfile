@@ -6,7 +6,7 @@ artifactory_metadata_repo = "conan-metadata"
 
 artifactory_url = (env.ARTIFACTORY_URL != null) ? "${env.ARTIFACTORY_URL}" : "jfrog.local"
 
-String reference_revision = null
+reference_revision = null
 
 def profiles = [
   "debug-gcc6": "conanio/gcc6",	
