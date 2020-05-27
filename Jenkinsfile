@@ -50,20 +50,20 @@ def get_stages(profile, docker_image) {
                                 sh "cat ${lockfile}"
                             }
 
-                            if (branch_name =~ ".*PR.*" || env.BRANCH_NAME == "develop") {      
-                                
-                                if (reference_revision == null) {               
-                                    stage("Get current package revision") {       
+                            if (branch_name =~ ".*PR.*" || env.BRANCH_NAME == "develop") {                                      
+
+                                stage("Upload package") {
+                                    sh "conan upload '*' --all -r ${conan_tmp_repo} --confirm"
+                                }
+
+                                stage("Get current package revision") {       
+                                    if (reference_revision == null) {               
                                         name = sh (script: "conan inspect . --raw name", returnStdout: true).trim()
                                         version = sh (script: "conan inspect . --raw version", returnStdout: true).trim()                                
                                         search_out = sh (script: "conan search ${name}/${version}@${user_channel} --revisions --raw", returnStdout: true).trim()    
                                         reference_revision = search_out.split(" ")[0]
                                         echo "${reference_revision}"
                                     }
-                                }
-
-                                stage("Upload package") {
-                                    sh "conan upload '*' --all -r ${conan_tmp_repo} --confirm"
                                 }
 
                                 if (create_build_info) {
