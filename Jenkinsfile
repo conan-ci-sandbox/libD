@@ -52,11 +52,7 @@ def get_stages(profile, docker_image) {
 
                             if (branch_name =~ ".*PR.*" || env.BRANCH_NAME == "develop") {                                      
 
-                                stage("Upload package") {
-                                    sh "conan upload '*' --all -r ${conan_tmp_repo} --confirm"
-                                }
-
-                                stage("Get current package revision") {       
+                                stage("Get created package info") {       
                                     if (reference_revision == null) {               
                                         name = sh (script: "conan inspect . --raw name", returnStdout: true).trim()
                                         version = sh (script: "conan inspect . --raw version", returnStdout: true).trim()                                
@@ -64,6 +60,10 @@ def get_stages(profile, docker_image) {
                                         reference_revision = search_out.split(" ")[0]
                                         echo "${reference_revision}"
                                     }
+                                }
+
+                                stage("Upload package: ${name}/${version}#${reference_revision} to conan-tmp") {
+                                    sh "conan upload '${name}/${version}' --all -r ${conan_tmp_repo} --confirm"
                                 }
 
                                 if (create_build_info) {
