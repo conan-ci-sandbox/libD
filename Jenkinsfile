@@ -105,7 +105,6 @@ pipeline {
                 script {
                     assert reference_revision != null
                     def reference = "${name}/${version}@${user_channel}#${reference_revision}"
-                    def scmVars = checkout scm
                     build(job: "../products/master", propagate: true, parameters: [
                         [$class: 'StringParameterValue', name: 'reference', value: reference],
                         [$class: 'StringParameterValue', name: 'library_branch', value: env.BRANCH_NAME],
