@@ -1,5 +1,5 @@
 user_channel = "mycompany/stable"
-config_url = "https://github.com/conan-ci-cd-training/settings.git"
+config_url = "https://github.com/conan-ci-sandbox/settings.git"
 conan_develop_repo = "conan-develop"
 conan_tmp_repo = "conan-tmp"
 artifactory_metadata_repo = "conan-metadata"
