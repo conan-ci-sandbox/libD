@@ -13,31 +13,38 @@ def profiles = [
   "release-gcc6": "conanio/gcc6"	
 ]
 
-def get_stages(profile, docker_image) {
+def get_stages(profile, docker_image, lockfile_contents) {
     return {
         stage(profile) {
             node {
                 docker.image(docker_image).inside("--net=host") {
                     def scmVars = checkout scm
-                    withEnv(["CONAN_USER_HOME=${env.WORKSPACE}/${profile}/conan_cache/"]) {
+                    withEnv(["CONAN_USER_HOME=${env.WORKSPACE}/conan_cache/"]) {
                         def lockfile = "${profile}.lock"
                         try {
                             stage("Configure Conan") {
                                 sh "conan --version"
                                 sh "conan config install ${config_url}"
                                 withCredentials([usernamePassword(credentialsId: 'artifactory-credentials', usernameVariable: 'ARTIFACTORY_USER', passwordVariable: 'ARTIFACTORY_PASSWORD')]) {
-                                    sh "conan remote add ${conan_develop_repo} http://${artifactory_url}:8081/artifactory/api/conan/${conan_develop_repo}" // the namme of the repo is the same that the arttifactory key
                                     sh "conan user -p ${ARTIFACTORY_PASSWORD} -r ${conan_develop_repo} ${ARTIFACTORY_USER}"
-                                    sh "conan remote add ${conan_tmp_repo} http://${artifactory_url}:8081/artifactory/api/conan/${conan_tmp_repo}" // the namme of the repo is the same that the arttifactory key
                                     sh "conan user -p ${ARTIFACTORY_PASSWORD} -r ${conan_tmp_repo} ${ARTIFACTORY_USER}"
                                 }
                             }
 
-                            stage("Create package") {                                
-                                sh "conan graph lock . --profile ${profile} --lockfile=${lockfile} -r ${conan_develop_repo}"
-                                sh "cat ${lockfile}"
-                                sh "conan create . ${user_channel} --profile ${profile} --lockfile=${lockfile} -r ${conan_develop_repo} --ignore-dirty"
-                                sh "cat ${lockfile}"
+                            stage("Create package") {       
+                                if (lockfile_contents==null) {
+                                    sh "conan graph lock . --profile ${profile} --lockfile=${lockfile} -r ${conan_develop_repo}"
+                                    sh "cat ${lockfile}"
+                                    sh "conan create . ${user_channel} --profile ${profile} --lockfile=${lockfile} -r ${conan_develop_repo} --ignore-dirty"
+                                    sh "cat ${lockfile}"
+                                }                         
+                                else {
+                                    writeFile file: "${profile}.lock", text: "${lockfile_contents}"
+                                    sh "cat ${profile}.lock"
+                                    sh "cp ${profile}.lock conan.lock"
+                                    sh "conan install libA/1.0@mycompany/stable --build libA --lockfile conan.lock"
+                                    sh "cat conan.lock"
+                                }
                             }
 
                             if (branch_name =~ ".*PR.*" || env.BRANCH_NAME == "develop") {                                      
@@ -89,18 +96,26 @@ pipeline {
         stage('Build') {
             steps {
                 script {
-                    withEnv(["CONAN_HOOK_ERROR_LEVEL=40"]) {
-                        parallel profiles.collectEntries { profile, docker_image ->
-                            ["${profile}": get_stages(profile, docker_image)]
+                    if (params.size()>0) {
+                        parallel params.collectEntries { profile_name, lockfile ->
+                            echo "${profile_name}"
+                            echo "${lockfile}"
+                            def docker_image = profiles[profile_name]
+                            ["${profile_name}": get_stages(profile_name, docker_image, lockfile)]
                         }
-                    }              
+                    }
+                    else {
+                        parallel profiles.collectEntries { profile, docker_image ->
+                            ["${profile}": get_stages(profile, docker_image, null)]
+                        }
+                    }
                 }
             }
         }
 
         stage("Trigger products pipeline") {
             agent any
-            when {expression { return (branch_name =~ ".*PR.*" || env.BRANCH_NAME == "develop") }}
+            when {expression { return ((branch_name =~ ".*PR.*" || env.BRANCH_NAME == "develop") && params.size()==0) }}
             steps {
                 script {
                     assert reference_revision != null
