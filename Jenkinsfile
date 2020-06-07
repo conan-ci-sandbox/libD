@@ -49,7 +49,7 @@ def get_stages(profile, docker_image, lockfile_contents) {
                                     def lockfile_name = "${name}-${profile}.lock"
                                     writeFile file: lockfile_name, text: "${lockfile_contents}"
                                     sh "cat ${lockfile_name}"
-                                    sh "conan create . ${user_channel} --lockfile ${lockfile_name}"
+                                    sh "conan create . ${user_channel} --lockfile ${lockfile_name} --ignore-dirty"
                                     sh "cat ${lockfile_name}"
                                     stash name: lockfile_name, includes: lockfile_name 
                                     echo "stashing: ${lockfile_name}"
