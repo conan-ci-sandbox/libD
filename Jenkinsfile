@@ -53,6 +53,7 @@ def get_stages(profile, docker_image, lockfile_contents) {
                                     sh "cat ${lockfile_name}"
                                     stash name: lockfile_name, includes: lockfile_name 
                                     echo "stashing: ${lockfile_name}"
+                                    sh "cp ${lockfile_name} ${lockfile}"
                                 }
                             }
 
