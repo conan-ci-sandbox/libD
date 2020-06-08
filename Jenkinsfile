@@ -51,8 +51,6 @@ def get_stages(profile, docker_image, lockfile_contents) {
                                     sh "cat ${lockfile_name}"
                                     sh "conan create . ${user_channel} --lockfile ${lockfile_name} --ignore-dirty"
                                     sh "cat ${lockfile_name}"
-                                    archiveArtifacts artifacts: lockfile_name, onlyIfSuccessful: true
-                                    echo "archiveArtifacts: ${lockfile_name}"
                                     sh "cp ${lockfile_name} ${lockfile}"
                                 }
                             }
